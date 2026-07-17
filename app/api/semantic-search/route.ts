@@ -36,6 +36,10 @@ export async function GET() {
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
+  const page = Math.max(0, Math.floor(Number(body.page) || 0));
+  const limit = Math.min(60, Math.max(12, Math.floor(Number(body.limit) || 40)));
+  const offset = page * limit;
+  const sort = String(body.sort || "recommend");
   const query = String(body.query || "").trim().slice(0, 300);
   const min = Number(body.priceMin); const max = Number(body.priceMax);
   const sizes = Array.isArray(body.sizes) ? body.sizes : [];
@@ -52,12 +56,17 @@ export async function POST(request: Request) {
   });
 
   if (!query) {
-    const results = pool.slice().sort((a, b) => a.price - b.price).slice(0, 60);
-    return Response.json({ provider: "filter", total: pool.length, summary: `按筛选找到 ${pool.length} 款，展示 ${results.length} 款。`, results });
+    if (sort === "priceAsc") pool = pool.slice().sort((a, b) => a.price - b.price);
+    if (sort === "priceDesc") pool = pool.slice().sort((a, b) => b.price - a.price);
+    const results = pool.slice(offset, offset + limit);
+    return Response.json({ provider: "filter", total: pool.length, page, hasMore: offset + results.length < pool.length, summary: `按筛选找到 ${pool.length} 款。`, results });
   }
   const queryTokens = tokens(query);
   const ranked = pool.map((cake) => ({ cake, score: score(queryTokens, cake) })).sort((a, b) => b.score - a.score);
   const matched = ranked.some((x) => x.score > 0) ? ranked.filter((x) => x.score > 0) : ranked;
-  const results = matched.slice(0, 40).map(({ cake }) => cake);
-  return Response.json({ provider: "smart", total: matched.length, summary: `根据完整标签匹配到 ${matched.length} 款，展示 ${results.length} 款。`, results });
+  let ordered = matched.map(({ cake }) => cake);
+  if (sort === "priceAsc") ordered = ordered.sort((a, b) => a.price - b.price);
+  if (sort === "priceDesc") ordered = ordered.sort((a, b) => b.price - a.price);
+  const results = ordered.slice(offset, offset + limit);
+  return Response.json({ provider: "smart", total: ordered.length, page, hasMore: offset + results.length < ordered.length, summary: `根据完整标签匹配到 ${ordered.length} 款。`, results });
 }
