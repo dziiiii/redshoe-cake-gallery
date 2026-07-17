@@ -18,18 +18,36 @@ function score(query: Set<string>, cake: Cake) {
   return result;
 }
 
+export async function GET() {
+  const categoryCounts = new Map<string, number>();
+  const sizes = new Set<string>();
+  for (const cake of cakes as Cake[]) {
+    categoryCounts.set(cake.category, (categoryCounts.get(cake.category) || 0) + 1);
+    if (cake.sizeBucket) sizes.add(cake.sizeBucket);
+  }
+  const categories = [...categoryCounts]
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, count]) => ({ name, count }));
+  return Response.json(
+    { total: cakes.length, sizes: [...sizes].sort(), categories },
+    { headers: { "Cache-Control": "public, max-age=3600, s-maxage=86400" } },
+  );
+}
+
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const query = String(body.query || "").trim().slice(0, 300);
   const min = Number(body.priceMin); const max = Number(body.priceMax);
   const sizes = Array.isArray(body.sizes) ? body.sizes : [];
   const occasion = String(body.occasion || ""); const target = String(body.target || "");
+  const category = String(body.category || "");
   let pool = (cakes as Cake[]).filter((cake) => {
     if (Number.isFinite(min) && body.priceMin !== undefined && cake.price < min) return false;
     if (Number.isFinite(max) && body.priceMax !== undefined && cake.price > max) return false;
     if (sizes.length && !sizes.includes(cake.sizeBucket)) return false;
     if (occasion && !cake.occasions.some((x) => x.includes(occasion))) return false;
     if (target && !cake.targets.some((x) => x.includes(target))) return false;
+    if (category && cake.category !== category) return false;
     return true;
   });
 
