@@ -23,9 +23,15 @@ function card(c) {
   </article>`;
 }
 
+function revealImage(img) {
+  if (img.complete && img.naturalWidth) img.classList.add("is-loaded");
+  else img.addEventListener("load", () => img.classList.add("is-loaded"), { once: true });
+}
+
 function render() {
   const list = visibleResults();
   $("#grid").innerHTML = list.slice(0, 60).map(card).join("");
+  document.querySelectorAll(".card-media img").forEach(revealImage);
   $("#empty").hidden = Boolean(list.length);
 }
 
@@ -41,7 +47,11 @@ async function search() {
 }
 
 function openDetail(c) {
-  $("#mImg").src = c.img; $("#mBarcode").textContent = c.barcode; $("#mPrice").textContent = c.price;
+  const detailImage = $("#mImg");
+  detailImage.classList.remove("is-loaded");
+  detailImage.src = c.img;
+  revealImage(detailImage);
+  $("#mBarcode").textContent = c.barcode; $("#mPrice").textContent = c.price;
   $("#mSpec").innerHTML = `<span>${esc(c.size)} · ${esc(c.serving)}</span><span>¥${c.price} · 预算 ${esc(c.budget)}</span>`;
   $("#mTargets").innerHTML = tags(c.targets, 20) || "<span>通用</span>"; $("#mOccasions").innerHTML = tags(c.occasions, 20);
   $("#mThemes").innerHTML = tags(c.themes, 20); $("#mShape").textContent = c.shape || "未标注"; $("#mColors").innerHTML = tags(c.colors, 20);
