@@ -31,11 +31,11 @@ def prepare(cake):
     with Image.open(source) as image:
         image = ImageOps.exif_transpose(image).convert("RGB")
         detail = image.copy()
-        detail.thumbnail((360, 360), Image.Resampling.LANCZOS)
-        detail.save(target, "WEBP", quality=25, method=0)
+        detail.thumbnail((1000, 1000), Image.Resampling.LANCZOS)
+        detail.save(target, "WEBP", quality=78, method=4)
         thumbnail = image.copy()
-        thumbnail.thumbnail((112, 112), Image.Resampling.LANCZOS)
-        thumbnail.save(thumb_target, "WEBP", quality=12, method=0)
+        thumbnail.thumbnail((480, 480), Image.Resampling.LANCZOS)
+        thumbnail.save(thumb_target, "WEBP", quality=65, method=4)
     return "ok"
 
 with ThreadPoolExecutor(max_workers=3) as pool:
