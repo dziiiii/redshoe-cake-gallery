@@ -1,95 +1,288 @@
-const $ = (s) => document.querySelector(s);
-const state = { sizes: new Set(), favs: new Set(JSON.parse(localStorage.getItem("cakeFavs") || "[]")), showFavOnly: false, category: "", results: [] };
-const esc = (s) => String(s || "").replace(/[&<>\"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
-const tags = (items, limit = 3) => (items || []).filter((x) => x && x !== "无").slice(0, limit).map((x) => `<span>${esc(x)}</span>`).join("");
+const $ = (selector) => document.querySelector(selector);
+const state = {
+  sizes: new Set(), favs: new Set(JSON.parse(localStorage.getItem("cakeFavs") || "[]")),
+  showFavOnly: false, category: "", results: [], currentCake: null,
+  lastFocus: null, scrollY: 0, detailHistory: false
+};
+const esc = (value) => String(value || "").replace(/[&<>\"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
+const tags = (items, limit = 3) => (items || []).filter((item) => item && item !== "无").slice(0, limit).map((item) => `<span>${esc(item)}</span>`).join("");
+const ratioFor = (cake, index = 0) => ["4 / 5", "1 / 1", "3 / 4", "5 / 6"][(cake.id.length + index) % 4];
 
-function saveFavs() { localStorage.setItem("cakeFavs", JSON.stringify([...state.favs])); $("#favCount").textContent = state.favs.size; }
-function toast(message) { const el = $("#toast"); el.textContent = message; el.hidden = false; clearTimeout(el._timer); el._timer = setTimeout(() => { el.hidden = true; }, 1600); }
+function saveFavs() {
+  localStorage.setItem("cakeFavs", JSON.stringify([...state.favs]));
+  $("#favCount").textContent = state.favs.size;
+}
+
+function toast(message) {
+  const element = $("#toast");
+  element.textContent = message;
+  element.hidden = false;
+  clearTimeout(element._timer);
+  element._timer = setTimeout(() => { element.hidden = true; }, 1700);
+}
 
 function visibleResults() {
-  let list = state.results.filter((c) => !state.category || c.category === state.category);
-  if (state.showFavOnly) list = list.filter((c) => state.favs.has(c.id));
+  let list = [...state.results];
+  if (state.showFavOnly) list = list.filter((cake) => state.favs.has(cake.id));
   const sort = $("#sortBy").value;
   if (sort === "priceAsc") list.sort((a, b) => a.price - b.price);
   if (sort === "priceDesc") list.sort((a, b) => b.price - a.price);
   return list;
 }
 
-function card(c) {
-  const compactTags = [...(c.occasions || []), ...(c.themes || []), c.category];
-  return `<article class="card" data-id="${c.id}" tabindex="0">
-    <div class="card-media"><img loading="lazy" decoding="async" src="${c.thumb || c.img}" alt="${esc(c.category)} ${esc(c.size)}蛋糕"><button class="card-fav ${state.favs.has(c.id) ? "on" : ""}" data-fav="${c.id}" aria-label="收藏">${state.favs.has(c.id) ? "♥" : "♡"}</button></div>
-    <div class="card-body"><div class="card-line"><strong><small>¥</small>${c.price}</strong><span>${esc(c.size)} · ${esc(c.serving)}</span></div><div class="card-tags">${tags(compactTags)}</div><p class="${c.reason ? "reason" : ""}">${esc(c.reason || c.desc)}</p></div>
+function card(cake, index = 0, related = false) {
+  const compactTags = [...(cake.occasions || []), ...(cake.themes || []), cake.category];
+  const classes = related ? "related-card" : "card";
+  return `<article class="${classes}" data-id="${cake.id}" tabindex="0" aria-label="${esc(cake.size)}蛋糕，价格${cake.price}元">
+    <div class="card-media" style="aspect-ratio:${ratioFor(cake, index)}">
+      <img loading="lazy" decoding="async" src="${cake.thumb || cake.img}" alt="${esc(cake.category)} ${esc(cake.size)}蛋糕">
+      <button class="card-fav ${state.favs.has(cake.id) ? "on" : ""}" data-fav="${cake.id}" aria-label="${state.favs.has(cake.id) ? "取消收藏" : "收藏"}">${state.favs.has(cake.id) ? "♥" : "♡"}</button>
+    </div>
+    <div class="card-body"><div class="card-line"><strong><small>¥</small>${cake.price}</strong><span>${esc(cake.size)} · ${esc(cake.serving)}</span></div><div class="card-tags">${tags(compactTags, 2)}</div></div>
   </article>`;
 }
 
 function revealImage(img) {
-  if (img.complete && img.naturalWidth) img.classList.add("is-loaded");
-  else img.addEventListener("load", () => img.classList.add("is-loaded"), { once: true });
+  const reveal = () => {
+    img.classList.add("is-loaded");
+    img.closest(".detail-hero")?.classList.add("has-image");
+  };
+  if (img.complete && img.naturalWidth) reveal();
+  else img.addEventListener("load", reveal, { once: true });
+  img.addEventListener("error", () => img.closest(".card-media,.detail-hero")?.classList.add("image-error"), { once: true });
+}
+
+function bindImages(scope = document) {
+  scope.querySelectorAll(".card-media img,.detail-hero img").forEach(revealImage);
 }
 
 function render() {
   const list = visibleResults();
-  $("#grid").innerHTML = list.slice(0, 60).map(card).join("");
-  document.querySelectorAll(".card-media img").forEach(revealImage);
+  $("#grid").innerHTML = list.slice(0, 60).map((cake, index) => card(cake, index)).join("");
+  $("#grid").setAttribute("aria-busy", "false");
+  bindImages($("#grid"));
   $("#empty").hidden = Boolean(list.length);
+  renderActiveFilters();
+}
+
+function filterValues() {
+  return {
+    query: $("#q").value.trim(),
+    priceMin: $("#priceMin").value ? Number($("#priceMin").value) : undefined,
+    priceMax: $("#priceMax").value ? Number($("#priceMax").value) : undefined,
+    sizes: [...state.sizes], occasion: $("#occasionFilter").value,
+    target: $("#targetFilter").value, category: state.category
+  };
+}
+
+function renderActiveFilters() {
+  const values = filterValues();
+  const items = [];
+  if (values.query) items.push(["query", values.query]);
+  if (values.priceMin !== undefined) items.push(["priceMin", `¥${values.priceMin}以上`]);
+  if (values.priceMax !== undefined) items.push(["priceMax", `¥${values.priceMax}以下`]);
+  values.sizes.forEach((size) => items.push([`size:${size}`, size]));
+  if (values.occasion) items.push(["occasion", values.occasion]);
+  if (values.target) items.push(["target", values.target]);
+  const active = $("#activeFilters");
+  active.innerHTML = items.map(([key, label]) => `<button data-remove-filter="${esc(key)}">${esc(label)}</button>`).join("");
+  active.hidden = !items.length;
+  $("#filterCount").hidden = !items.length;
+  $("#filterCount").textContent = items.length;
 }
 
 async function search() {
-  $("#grid").innerHTML = '<div class="loading"><i></i><span>正在挑选合适的蛋糕…</span></div>';
-  const body = { query: $("#q").value.trim(), priceMin: $("#priceMin").value ? Number($("#priceMin").value) : undefined, priceMax: $("#priceMax").value ? Number($("#priceMax").value) : undefined, sizes: [...state.sizes], occasion: $("#occasionFilter").value, target: $("#targetFilter").value, category: state.category };
+  $("#grid").setAttribute("aria-busy", "true");
+  $("#grid").innerHTML = '<div class="loading"><div><i></i><span>正在挑选合适的蛋糕…</span></div></div>';
+  $("#empty").hidden = true;
+  const body = filterValues();
   try {
-    const data = await fetch("/api/semantic-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
+    const response = await fetch("/api/semantic-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!response.ok) throw new Error("search");
+    const data = await response.json();
     state.results = data.results || [];
-    $("#status").innerHTML = `<strong>为你找到 ${data.total ?? state.results.length} 款</strong>${body.query ? `<span class="ai-label">${data.provider === "kimi" ? "✦ AI 精排" : "本地匹配"}</span>` : ""}<small>${esc(data.summary || "")}</small>`;
+    const count = data.total ?? state.results.length;
+    $("#status").innerHTML = `<strong>找到 ${count} 款蛋糕</strong>${body.query ? `<span class="ai-label">${data.provider === "kimi" ? "✦ AI 精排" : "智能匹配"}</span>` : ""}<small>${esc(data.summary || "")}</small>`;
     render();
-  } catch { $("#status").textContent = "加载失败，请稍后重试"; $("#grid").innerHTML = ""; }
+  } catch {
+    $("#status").innerHTML = "<strong>网络有点慢</strong><small>请稍后重试</small>";
+    $("#grid").innerHTML = "";
+    $("#grid").setAttribute("aria-busy", "false");
+  }
 }
 
-function openDetail(c) {
-  const detailImage = $("#mImg");
-  detailImage.classList.remove("is-loaded");
-  detailImage.src = c.img;
-  revealImage(detailImage);
-  $("#mBarcode").textContent = c.barcode; $("#mPrice").textContent = c.price;
-  $("#mSpec").innerHTML = `<span>${esc(c.size)} · ${esc(c.serving)}</span><span>¥${c.price} · 预算 ${esc(c.budget)}</span>`;
-  $("#mTargets").innerHTML = tags(c.targets, 20) || "<span>通用</span>"; $("#mOccasions").innerHTML = tags(c.occasions, 20);
-  $("#mThemes").innerHTML = tags(c.themes, 20); $("#mShape").textContent = c.shape || "未标注"; $("#mColors").innerHTML = tags(c.colors, 20);
-  $("#mDecor").textContent = c.decor || "无"; $("#mExtra").textContent = `${c.flowers || "无"} / ${c.ip || "无"}`; $("#mDesc").textContent = c.desc;
-  const fav = $("#mFav"); fav.classList.toggle("on", state.favs.has(c.id)); fav.textContent = state.favs.has(c.id) ? "♥ 已收藏" : "♡ 收藏"; fav.onclick = () => { toggleFav(c.id); openDetail(c); };
-  $("#copyBarcode").onclick = () => navigator.clipboard.writeText(c.barcode).then(() => toast("已复制款式编号"));
-  $("#modal").classList.add("open"); $("#modal").setAttribute("aria-hidden", "false"); document.body.classList.add("locked");
+function relatedCakes(cake) {
+  const themes = new Set(cake.themes || []);
+  return state.results.filter((item) => item.id !== cake.id).map((item) => ({
+    item,
+    score: (item.category === cake.category ? 5 : 0) + (item.occasions || []).filter((x) => (cake.occasions || []).includes(x)).length * 2 + (item.themes || []).filter((x) => themes.has(x)).length
+  })).sort((a, b) => b.score - a.score).slice(0, 6).map(({ item }) => item);
 }
-function closeDetail() { $("#modal").classList.remove("open"); $("#modal").setAttribute("aria-hidden", "true"); document.body.classList.remove("locked"); }
-function toggleFav(id) { state.favs.has(id) ? state.favs.delete(id) : state.favs.add(id); saveFavs(); render(); }
+
+function openDetail(cake, pushHistory = true) {
+  if (!cake) return;
+  state.currentCake = cake;
+  state.lastFocus = document.activeElement;
+  state.scrollY = window.scrollY;
+  const image = $("#mImg");
+  image.classList.remove("is-loaded");
+  image.closest(".detail-hero").classList.remove("has-image", "image-error");
+  image.src = cake.img;
+  revealImage(image);
+  $("#mBarcode").textContent = cake.barcode;
+  $("#mPrice").textContent = cake.price;
+  $("#mServing").textContent = `${cake.size} · ${cake.serving}`;
+  $("#mHighlights").innerHTML = tags([...(cake.occasions || []), ...(cake.targets || []), ...(cake.themes || [])], 6);
+  $("#mDesc").textContent = cake.desc;
+  $("#mSpec").innerHTML = `<span>${esc(cake.size)} · ${esc(cake.serving)}</span><span>¥${cake.price} · 预算 ${esc(cake.budget)}</span>`;
+  $("#mTargets").innerHTML = tags(cake.targets, 20) || "<span>通用</span>";
+  $("#mOccasions").innerHTML = tags(cake.occasions, 20);
+  $("#mThemes").innerHTML = tags(cake.themes, 20);
+  $("#mShape").textContent = cake.shape || "未标注";
+  $("#mColors").innerHTML = tags(cake.colors, 20);
+  $("#mDecor").textContent = cake.decor || "无";
+  $("#mExtra").textContent = `${cake.flowers || "无"} / ${cake.ip || "无"}`;
+  $(".detail-more").open = false;
+  $("#relatedGrid").innerHTML = relatedCakes(cake).map((item, index) => card(item, index, true)).join("");
+  bindImages($("#relatedGrid"));
+  refreshFavUI();
+  $("#modal").classList.add("open");
+  $("#modal").setAttribute("aria-hidden", "false");
+  document.body.classList.add("locked");
+  $(".detail-scroll").scrollTop = 0;
+  $(".detail-back").focus();
+  if (pushHistory && !state.detailHistory) {
+    history.pushState({ cake: cake.id }, "", `#cake-${cake.id}`);
+    state.detailHistory = true;
+  } else if (!pushHistory && state.detailHistory) {
+    history.replaceState({ cake: cake.id }, "", `#cake-${cake.id}`);
+  }
+}
+
+function closeDetail(fromHistory = false) {
+  if (!$("#modal").classList.contains("open")) return;
+  $("#modal").classList.remove("open");
+  $("#modal").setAttribute("aria-hidden", "true");
+  document.body.classList.remove("locked");
+  state.currentCake = null;
+  window.scrollTo(0, state.scrollY);
+  state.lastFocus?.focus?.();
+  if (!fromHistory && state.detailHistory) history.back();
+  state.detailHistory = false;
+}
+
+function toggleFav(id) {
+  const saved = state.favs.has(id);
+  saved ? state.favs.delete(id) : state.favs.add(id);
+  saveFavs();
+  refreshFavUI();
+  toast(saved ? "已取消收藏" : "已收藏");
+  if (state.showFavOnly && !state.currentCake) render();
+}
+
+function refreshFavUI() {
+  document.querySelectorAll("[data-fav]").forEach((button) => {
+    const on = state.favs.has(button.dataset.fav);
+    button.classList.toggle("on", on);
+    button.textContent = on ? "♥" : "♡";
+    button.setAttribute("aria-label", on ? "取消收藏" : "收藏");
+  });
+  if (state.currentCake) {
+    const on = state.favs.has(state.currentCake.id);
+    $("#mFav").classList.toggle("on", on);
+    $("#mFav").textContent = on ? "♥ 已收藏" : "♡ 收藏";
+  }
+}
+
+function openFilters() {
+  state.lastFocus = document.activeElement;
+  $("#filterSheet").classList.add("open");
+  $("#filterSheet").setAttribute("aria-hidden", "false");
+  document.body.classList.add("locked");
+  $("#priceMin").focus();
+}
+
+function closeFilters() {
+  $("#filterSheet").classList.remove("open");
+  $("#filterSheet").setAttribute("aria-hidden", "true");
+  document.body.classList.remove("locked");
+  state.lastFocus?.focus?.();
+}
+
+function resetFilters(runSearch = true) {
+  state.sizes.clear(); state.category = "";
+  ["q", "priceMin", "priceMax", "occasionFilter", "targetFilter"].forEach((id) => { $("#" + id).value = ""; });
+  document.querySelectorAll("[data-size]").forEach((button) => button.classList.remove("active"));
+  document.querySelectorAll("[data-category]").forEach((button) => button.classList.toggle("active", !button.dataset.category));
+  if (runSearch) search();
+}
+
+function removeFilter(key) {
+  if (key === "query") $("#q").value = "";
+  if (key === "priceMin") $("#priceMin").value = "";
+  if (key === "priceMax") $("#priceMax").value = "";
+  if (key === "occasion") $("#occasionFilter").value = "";
+  if (key === "target") $("#targetFilter").value = "";
+  if (key.startsWith("size:")) {
+    const size = key.slice(5); state.sizes.delete(size);
+    document.querySelector(`[data-size="${CSS.escape(size)}"]`)?.classList.remove("active");
+  }
+  search();
+}
 
 function setupCatalog(meta) {
-  $("#sizes").innerHTML = (meta.sizes || []).map((b) => `<button data-size="${esc(b)}">${esc(b)}</button>`).join("");
-  $("#categoryList").innerHTML = `<button class="active" data-category=""><span>全部款式</span><b>${meta.total || 0}</b></button>` + (meta.categories || []).map(({ name, count }) => `<button data-category="${esc(name)}"><span>${esc(name)}</span><b>${count}</b></button>`).join("");
+  $("#sizes").innerHTML = (meta.sizes || []).map((size) => `<button type="button" data-size="${esc(size)}">${esc(size)}</button>`).join("");
+  const featured = ["", "仙女款", "女孩款", "男孩款", "毕业六一款", "祝寿款", "入宅开业款", "纪念日婚庆款"];
+  const counts = new Map((meta.categories || []).map((item) => [item.name, item.count]));
+  $("#categoryList").innerHTML = featured.filter((name) => !name || counts.has(name)).map((name) => `<button type="button" class="${name ? "" : "active"}" data-category="${esc(name)}">${name || "全部"}<b>${name ? counts.get(name) : meta.total || 0}</b></button>`).join("");
 }
 
-$("#searchBtn").onclick = search; $("#q").onkeydown = (e) => { if (e.key === "Enter") search(); };
-$("#examples").onclick = (e) => { const b = e.target.closest("[data-q]"); if (b) { $("#q").value = b.dataset.q; search(); } };
-$("#sizes").onclick = (e) => { const b = e.target.closest("[data-size]"); if (!b) return; state.sizes.has(b.dataset.size) ? state.sizes.delete(b.dataset.size) : state.sizes.add(b.dataset.size); b.classList.toggle("active"); search(); };
-$("#categoryList").onclick = (e) => { const b = e.target.closest("[data-category]"); if (!b) return; state.category = b.dataset.category; document.querySelectorAll("[data-category]").forEach((x) => x.classList.toggle("active", x === b)); search(); };
-$("#grid").onclick = (e) => { const fav = e.target.closest("[data-fav]"); if (fav) { e.stopPropagation(); toggleFav(fav.dataset.fav); return; } const el = e.target.closest("[data-id]"); const cake = state.results.find((c) => c.id === el?.dataset.id); if (cake) openDetail(cake); };
-$("#grid").onkeydown = (e) => { if (e.key === "Enter") e.target.closest("[data-id]")?.click(); };
-$("#favToggle").onclick = (e) => { state.showFavOnly = !state.showFavOnly; e.currentTarget.classList.toggle("active", state.showFavOnly); e.currentTarget.setAttribute("aria-pressed", state.showFavOnly); render(); };
-$("#sortBy").onchange = render; ["priceMin", "priceMax", "occasionFilter", "targetFilter"].forEach((id) => $("#" + id).onchange = search);
-$("#resetBtn").onclick = () => { state.sizes.clear(); state.category = ""; ["q", "priceMin", "priceMax", "occasionFilter", "targetFilter"].forEach((id) => $("#" + id).value = ""); document.querySelectorAll(".size-row button").forEach((b) => b.classList.remove("active")); document.querySelectorAll("[data-category]").forEach((b) => b.classList.toggle("active", !b.dataset.category)); search(); };
-document.querySelectorAll("[data-close]").forEach((el) => el.onclick = closeDetail); document.onkeydown = (e) => { if (e.key === "Escape") closeDetail(); };
+function trapFocus(container, event) {
+  if (event.key !== "Tab") return;
+  const focusable = [...container.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),summary,[tabindex]:not([tabindex="-1"])')].filter((element) => element.offsetParent !== null);
+  if (!focusable.length) return;
+  const first = focusable[0], last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+}
+
+$("#searchForm").addEventListener("submit", (event) => { event.preventDefault(); search(); });
+$("#examples").onclick = (event) => { const button = event.target.closest("[data-q]"); if (button) { $("#q").value = button.dataset.q; search(); } };
+$("#sizes").onclick = (event) => { const button = event.target.closest("[data-size]"); if (!button) return; state.sizes.has(button.dataset.size) ? state.sizes.delete(button.dataset.size) : state.sizes.add(button.dataset.size); button.classList.toggle("active"); };
+$("#categoryList").onclick = (event) => { const button = event.target.closest("[data-category]"); if (!button) return; state.category = button.dataset.category; document.querySelectorAll("[data-category]").forEach((item) => item.classList.toggle("active", item === button)); search(); };
+$("#grid").onclick = (event) => { const fav = event.target.closest("[data-fav]"); if (fav) { event.stopPropagation(); toggleFav(fav.dataset.fav); return; } const item = event.target.closest("[data-id]"); openDetail(state.results.find((cake) => cake.id === item?.dataset.id)); };
+$("#grid").onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.target.closest("[data-id]")?.click(); } };
+$("#relatedGrid").onclick = (event) => { const fav = event.target.closest("[data-fav]"); if (fav) { event.stopPropagation(); toggleFav(fav.dataset.fav); return; } const item = event.target.closest("[data-id]"); openDetail(state.results.find((cake) => cake.id === item?.dataset.id), false); };
+$("#favToggle").onclick = (event) => { state.showFavOnly = !state.showFavOnly; event.currentTarget.classList.toggle("active", state.showFavOnly); event.currentTarget.setAttribute("aria-pressed", state.showFavOnly); $("#status").innerHTML = `<strong>${state.showFavOnly ? "我的收藏" : `找到 ${state.results.length} 款蛋糕`}</strong>`; render(); };
+$("#sortBy").onchange = render;
+$("#filterOpen").onclick = openFilters;
+document.querySelectorAll("[data-filter-close]").forEach((element) => { element.onclick = closeFilters; });
+$("#applyFilters").onclick = () => { closeFilters(); search(); };
+$("#resetBtn").onclick = () => resetFilters(false);
+$("#emptyReset").onclick = () => resetFilters(true);
+$("#activeFilters").onclick = (event) => { const button = event.target.closest("[data-remove-filter]"); if (button) removeFilter(button.dataset.removeFilter); };
+$("#mFav").onclick = () => state.currentCake && toggleFav(state.currentCake.id);
+$("#copyBarcode").onclick = () => state.currentCake && navigator.clipboard.writeText(state.currentCake.barcode).then(() => toast("款式编号已复制"));
+$("#shareBtn").onclick = async () => { if (!state.currentCake) return; const data = { title: "红鞋烘焙蛋糕款式", text: `${state.currentCake.barcode} · ${state.currentCake.size} · ¥${state.currentCake.price}`, url: location.href }; if (navigator.share) await navigator.share(data).catch(() => {}); else navigator.clipboard.writeText(location.href).then(() => toast("链接已复制")); };
+document.querySelectorAll("[data-close]").forEach((element) => { element.onclick = () => closeDetail(); });
+window.addEventListener("popstate", () => { if ($("#modal").classList.contains("open")) closeDetail(true); });
+document.addEventListener("keydown", (event) => {
+  const filterOpen = $("#filterSheet").classList.contains("open");
+  const detailOpen = $("#modal").classList.contains("open");
+  if (filterOpen) trapFocus($("#filterSheet"), event);
+  else if (detailOpen) trapFocus($("#modal"), event);
+  if (event.key === "Escape") { if (filterOpen) closeFilters(); else closeDetail(); }
+});
 
 (async () => {
   saveFavs();
   try {
-    const meta = await fetch("/api/semantic-search", { cache: "force-cache" }).then((r) => {
-      if (!r.ok) throw new Error("meta");
-      return r.json();
-    });
-    setupCatalog(meta);
+    const response = await fetch("/api/semantic-search", { cache: "force-cache" });
+    if (!response.ok) throw new Error("meta");
+    setupCatalog(await response.json());
     await search();
   } catch {
-    $("#status").textContent = "网络较慢，请点击搜索重试";
+    $("#status").innerHTML = "<strong>网络有点慢</strong><small>请点击搜索重试</small>";
     $("#grid").innerHTML = "";
   }
 })();
