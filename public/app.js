@@ -2,7 +2,8 @@ const $ = (selector) => document.querySelector(selector);
 const state = {
   sizes: new Set(), favs: new Set(JSON.parse(localStorage.getItem("cakeFavs") || "[]")),
   showFavOnly: false, category: "", results: [], currentCake: null,
-  lastFocus: null, scrollY: 0, detailHistory: false
+  lastFocus: null, scrollY: 0, detailHistory: false,
+  page: 0, total: 0, hasMore: false, loadingMore: false, searchToken: 0
 };
 const esc = (value) => String(value || "").replace(/[&<>\"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
 const tags = (items, limit = 3) => (items || []).filter((item) => item && item !== "无").slice(0, limit).map((item) => `<span>${esc(item)}</span>`).join("");
@@ -58,11 +59,17 @@ function bindImages(scope = document) {
 
 function render() {
   const list = visibleResults();
-  $("#grid").innerHTML = list.slice(0, 60).map((cake, index) => card(cake, index)).join("");
+  $("#grid").innerHTML = list.map((cake, index) => card(cake, index)).join("");
   $("#grid").setAttribute("aria-busy", "false");
   bindImages($("#grid"));
   $("#empty").hidden = Boolean(list.length);
   renderActiveFilters();
+}
+
+function appendResults(batch) {
+  const start = state.results.length - batch.length;
+  $("#grid").insertAdjacentHTML("beforeend", batch.map((cake, index) => card(cake, start + index)).join(""));
+  bindImages($("#grid"));
 }
 
 function filterValues() {
@@ -71,7 +78,8 @@ function filterValues() {
     priceMin: $("#priceMin").value ? Number($("#priceMin").value) : undefined,
     priceMax: $("#priceMax").value ? Number($("#priceMax").value) : undefined,
     sizes: [...state.sizes], occasion: $("#occasionFilter").value,
-    target: $("#targetFilter").value, category: state.category
+    target: $("#targetFilter").value, category: state.category,
+    sort: $("#sortBy").value
   };
 }
 
@@ -91,25 +99,53 @@ function renderActiveFilters() {
   $("#filterCount").textContent = items.length;
 }
 
-async function search() {
-  $("#grid").setAttribute("aria-busy", "true");
-  $("#grid").innerHTML = '<div class="loading"><div><i></i><span>正在挑选合适的蛋糕…</span></div></div>';
-  $("#empty").hidden = true;
-  const body = filterValues();
+function updateLoadMore() {
+  const wrap = $("#loadMore");
+  wrap.hidden = !state.results.length;
+  wrap.classList.toggle("loading-more", state.loadingMore);
+  wrap.classList.toggle("done", !state.hasMore && !state.loadingMore);
+  $("#loadMoreStatus").textContent = state.hasMore ? `已显示 ${state.results.length} / ${state.total} 款` : `已显示全部 ${state.results.length} 款`;
+}
+
+async function loadPage(reset = false) {
+  if ((!reset && state.loadingMore) || (!reset && !state.hasMore)) return;
+  if (reset) {
+    state.page = 0; state.total = 0; state.hasMore = true; state.results = [];
+    $("#grid").setAttribute("aria-busy", "true");
+    $("#grid").innerHTML = '<div class="loading"><div><i></i><span>正在挑选合适的蛋糕…</span></div></div>';
+    $("#empty").hidden = true;
+    $("#loadMore").hidden = true;
+  }
+  state.loadingMore = true;
+  updateLoadMore();
+  const token = reset ? ++state.searchToken : state.searchToken;
+  const body = { ...filterValues(), page: state.page, limit: 40 };
   try {
     const response = await fetch("/api/semantic-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (!response.ok) throw new Error("search");
     const data = await response.json();
-    state.results = data.results || [];
-    const count = data.total ?? state.results.length;
+    if (token !== state.searchToken) return;
+    const batch = data.results || [];
+    state.total = data.total ?? batch.length;
+    state.hasMore = Boolean(data.hasMore);
+    state.page += 1;
+    if (reset) state.results = batch; else state.results.push(...batch);
+    if (!batch.length) state.hasMore = false;
+    const count = state.total;
     $("#status").innerHTML = `<strong>找到 ${count} 款蛋糕</strong>${body.query ? `<span class="ai-label">${data.provider === "kimi" ? "✦ AI 精排" : "智能匹配"}</span>` : ""}<small>${esc(data.summary || "")}</small>`;
-    render();
+    if (reset) render(); else appendResults(state.showFavOnly ? batch.filter((cake) => state.favs.has(cake.id)) : batch);
   } catch {
-    $("#status").innerHTML = "<strong>网络有点慢</strong><small>请稍后重试</small>";
-    $("#grid").innerHTML = "";
-    $("#grid").setAttribute("aria-busy", "false");
+    if (reset) {
+      $("#status").innerHTML = "<strong>网络有点慢</strong><small>请稍后重试</small>";
+      $("#grid").innerHTML = "";
+      $("#grid").setAttribute("aria-busy", "false");
+    } else toast("更多款式加载失败，请点击重试");
+  } finally {
+    if (token === state.searchToken) { state.loadingMore = false; updateLoadMore(); }
   }
 }
+
+function search() { return loadPage(true); }
 
 function relatedCakes(cake) {
   const themes = new Set(cake.themes || []);
@@ -254,12 +290,13 @@ $("#grid").onclick = (event) => { const fav = event.target.closest("[data-fav]")
 $("#grid").onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.target.closest("[data-id]")?.click(); } };
 $("#relatedGrid").onclick = (event) => { const fav = event.target.closest("[data-fav]"); if (fav) { event.stopPropagation(); toggleFav(fav.dataset.fav); return; } const item = event.target.closest("[data-id]"); openDetail(state.results.find((cake) => cake.id === item?.dataset.id), false); };
 $("#favToggle").onclick = (event) => { state.showFavOnly = !state.showFavOnly; event.currentTarget.classList.toggle("active", state.showFavOnly); event.currentTarget.setAttribute("aria-pressed", state.showFavOnly); $("#status").innerHTML = `<strong>${state.showFavOnly ? "我的收藏" : `找到 ${state.results.length} 款蛋糕`}</strong>`; render(); };
-$("#sortBy").onchange = render;
+$("#sortBy").onchange = search;
 $("#filterOpen").onclick = openFilters;
 document.querySelectorAll("[data-filter-close]").forEach((element) => { element.onclick = closeFilters; });
 $("#applyFilters").onclick = () => { closeFilters(); search(); };
 $("#resetBtn").onclick = () => resetFilters(false);
 $("#emptyReset").onclick = () => resetFilters(true);
+$("#loadMoreBtn").onclick = () => loadPage(false);
 $("#activeFilters").onclick = (event) => { const button = event.target.closest("[data-remove-filter]"); if (button) removeFilter(button.dataset.removeFilter); };
 $("#mFav").onclick = () => state.currentCake && toggleFav(state.currentCake.id);
 $("#copyBarcode").onclick = () => state.currentCake && navigator.clipboard.writeText(state.currentCake.barcode).then(() => toast("款式编号已复制"));
@@ -273,6 +310,11 @@ document.addEventListener("keydown", (event) => {
   else if (detailOpen) trapFocus($("#modal"), event);
   if (event.key === "Escape") { if (filterOpen) closeFilters(); else closeDetail(); }
 });
+
+const loadObserver = new IntersectionObserver((entries) => {
+  if (entries.some((entry) => entry.isIntersecting)) loadPage(false);
+}, { rootMargin: "700px 0px" });
+loadObserver.observe($("#loadMore"));
 
 (async () => {
   saveFavs();
