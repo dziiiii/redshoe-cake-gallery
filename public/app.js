@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-const state = { sizes: new Set(), favs: new Set(JSON.parse(localStorage.getItem("cakeFavs") || "[]")), showFavOnly: false, category: "", results: [], all: [] };
+const state = { sizes: new Set(), favs: new Set(JSON.parse(localStorage.getItem("cakeFavs") || "[]")), showFavOnly: false, category: "", results: [] };
 const esc = (s) => String(s || "").replace(/[&<>\"]/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
 const tags = (items, limit = 3) => (items || []).filter((x) => x && x !== "无").slice(0, limit).map((x) => `<span>${esc(x)}</span>`).join("");
 
@@ -31,7 +31,7 @@ function render() {
 
 async function search() {
   $("#grid").innerHTML = '<div class="loading"><i></i><span>正在挑选合适的蛋糕…</span></div>';
-  const body = { query: $("#q").value.trim(), priceMin: $("#priceMin").value ? Number($("#priceMin").value) : undefined, priceMax: $("#priceMax").value ? Number($("#priceMax").value) : undefined, sizes: [...state.sizes], occasion: $("#occasionFilter").value, target: $("#targetFilter").value };
+  const body = { query: $("#q").value.trim(), priceMin: $("#priceMin").value ? Number($("#priceMin").value) : undefined, priceMax: $("#priceMax").value ? Number($("#priceMax").value) : undefined, sizes: [...state.sizes], occasion: $("#occasionFilter").value, target: $("#targetFilter").value, category: state.category };
   try {
     const data = await fetch("/api/semantic-search", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then((r) => r.json());
     state.results = data.results || [];
@@ -53,16 +53,15 @@ function openDetail(c) {
 function closeDetail() { $("#modal").classList.remove("open"); $("#modal").setAttribute("aria-hidden", "true"); document.body.classList.remove("locked"); }
 function toggleFav(id) { state.favs.has(id) ? state.favs.delete(id) : state.favs.add(id); saveFavs(); render(); }
 
-function setupCatalog() {
-  const buckets = [...new Set(state.all.map((c) => c.sizeBucket))].sort(); $("#sizes").innerHTML = buckets.map((b) => `<button data-size="${esc(b)}">${esc(b)}</button>`).join("");
-  const counts = new Map(); state.all.forEach((c) => counts.set(c.category, (counts.get(c.category) || 0) + 1));
-  $("#categoryList").innerHTML = `<button class="active" data-category=""><span>全部款式</span><b>${state.all.length}</b></button>` + [...counts].sort((a, b) => b[1] - a[1]).map(([name, count]) => `<button data-category="${esc(name)}"><span>${esc(name)}</span><b>${count}</b></button>`).join("");
+function setupCatalog(meta) {
+  $("#sizes").innerHTML = (meta.sizes || []).map((b) => `<button data-size="${esc(b)}">${esc(b)}</button>`).join("");
+  $("#categoryList").innerHTML = `<button class="active" data-category=""><span>全部款式</span><b>${meta.total || 0}</b></button>` + (meta.categories || []).map(({ name, count }) => `<button data-category="${esc(name)}"><span>${esc(name)}</span><b>${count}</b></button>`).join("");
 }
 
 $("#searchBtn").onclick = search; $("#q").onkeydown = (e) => { if (e.key === "Enter") search(); };
 $("#examples").onclick = (e) => { const b = e.target.closest("[data-q]"); if (b) { $("#q").value = b.dataset.q; search(); } };
 $("#sizes").onclick = (e) => { const b = e.target.closest("[data-size]"); if (!b) return; state.sizes.has(b.dataset.size) ? state.sizes.delete(b.dataset.size) : state.sizes.add(b.dataset.size); b.classList.toggle("active"); search(); };
-$("#categoryList").onclick = (e) => { const b = e.target.closest("[data-category]"); if (!b) return; state.category = b.dataset.category; document.querySelectorAll("[data-category]").forEach((x) => x.classList.toggle("active", x === b)); render(); };
+$("#categoryList").onclick = (e) => { const b = e.target.closest("[data-category]"); if (!b) return; state.category = b.dataset.category; document.querySelectorAll("[data-category]").forEach((x) => x.classList.toggle("active", x === b)); search(); };
 $("#grid").onclick = (e) => { const fav = e.target.closest("[data-fav]"); if (fav) { e.stopPropagation(); toggleFav(fav.dataset.fav); return; } const el = e.target.closest("[data-id]"); const cake = state.results.find((c) => c.id === el?.dataset.id); if (cake) openDetail(cake); };
 $("#grid").onkeydown = (e) => { if (e.key === "Enter") e.target.closest("[data-id]")?.click(); };
 $("#favToggle").onclick = (e) => { state.showFavOnly = !state.showFavOnly; e.currentTarget.classList.toggle("active", state.showFavOnly); e.currentTarget.setAttribute("aria-pressed", state.showFavOnly); render(); };
@@ -70,4 +69,17 @@ $("#sortBy").onchange = render; ["priceMin", "priceMax", "occasionFilter", "targ
 $("#resetBtn").onclick = () => { state.sizes.clear(); state.category = ""; ["q", "priceMin", "priceMax", "occasionFilter", "targetFilter"].forEach((id) => $("#" + id).value = ""); document.querySelectorAll(".size-row button").forEach((b) => b.classList.remove("active")); document.querySelectorAll("[data-category]").forEach((b) => b.classList.toggle("active", !b.dataset.category)); search(); };
 document.querySelectorAll("[data-close]").forEach((el) => el.onclick = closeDetail); document.onkeydown = (e) => { if (e.key === "Escape") closeDetail(); };
 
-(async () => { saveFavs(); state.all = await fetch("/data/cakes.json").then((r) => r.json()); setupCatalog(); await search(); })();
+(async () => {
+  saveFavs();
+  try {
+    const meta = await fetch("/api/semantic-search", { cache: "force-cache" }).then((r) => {
+      if (!r.ok) throw new Error("meta");
+      return r.json();
+    });
+    setupCatalog(meta);
+    await search();
+  } catch {
+    $("#status").textContent = "网络较慢，请点击搜索重试";
+    $("#grid").innerHTML = "";
+  }
+})();
