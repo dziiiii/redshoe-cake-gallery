@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="红鞋烘焙蛋糕灵感库，用对象、场合、预算和风格快速挑选蛋糕。">
+  <title>红鞋烘焙 · 蛋糕灵感库</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="红鞋烘焙首页"><span class="brand-mark">R<small>BAKERY</small></span><span>红鞋烘焙</span></a>
+    <nav aria-label="主导航"><a class="active" href="#results">首页</a><a href="#results">全部款式</a><a href="#categories">分类灵感</a></nav>
+    <button class="nav-fav" id="favToggle" aria-pressed="false"><span aria-hidden="true">♡</span> 我的收藏 <b id="favCount">0</b></button>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="pageTitle">
+      <p class="eyebrow">1757 款真实蛋糕图库</p>
+      <h1 id="pageTitle">找到刚刚好的蛋糕 <span>✦</span></h1>
+      <p>说出对象、场合、预算和喜欢的样子，AI 帮你从丰富标签中挑选</p>
+      <div class="searchbar">
+        <span aria-hidden="true">⌕</span>
+        <input id="q" type="search" placeholder="例如：适合六年级全班毕业聚会的蛋糕，预算1000以内" autocomplete="off">
+        <button id="searchBtn"><span aria-hidden="true">✦</span> AI 搜一搜</button>
+      </div>
+      <div class="quick-chips" id="examples" aria-label="快捷搜索">
+        <button data-q="适合小男孩的恐龙蛋糕">🦖 男孩 · 恐龙</button>
+        <button data-q="女孩子的公主城堡蛋糕">👑 女孩 · 公主</button>
+        <button data-q="给爷爷祝寿的中式蛋糕">寿 爷爷祝寿</button>
+        <button data-q="情侣浪漫纪念日蛋糕">♥ 情侣纪念日</button>
+        <button data-q="公司开业大吉蛋糕">▦ 公司开业</button>
+        <button data-q="小学六年级毕业班级蛋糕">🎓 毕业季</button>
+      </div>
+    </section>
+
+    <section class="filter-card" aria-label="筛选蛋糕">
+      <div class="filter-block price-filter"><label>价格</label><div><span>¥</span><input id="priceMin" type="number" min="0" placeholder="最低"><i>—</i><span>¥</span><input id="priceMax" type="number" min="0" placeholder="最高"></div></div>
+      <div class="filter-block"><label>尺寸</label><div class="size-row" id="sizes"></div></div>
+      <div class="filter-block"><label for="occasionFilter">场合</label><select id="occasionFilter"><option value="">全部场合</option><option>生日</option><option>毕业</option><option>祝寿</option><option>开业</option><option>纪念日</option><option>婚礼</option></select></div>
+      <div class="filter-block"><label for="targetFilter">送给谁</label><select id="targetFilter"><option value="">不限对象</option><option>男孩</option><option>女孩</option><option>儿童</option><option>老师</option><option>爷爷</option><option>奶奶</option><option>朋友</option></select></div>
+      <button class="reset-btn" id="resetBtn">↻ 重置</button>
+    </section>
+
+    <section class="catalog" id="results">
+      <aside class="category-panel" id="categories">
+        <h2>款式分类</h2><div id="categoryList"></div>
+      </aside>
+      <div class="results-panel">
+        <div class="results-head"><div id="status" class="status">正在准备蛋糕图库…</div><label>排序 <select id="sortBy"><option value="recommend">推荐优先</option><option value="priceAsc">价格从低到高</option><option value="priceDesc">价格从高到低</option></select></label></div>
+        <div class="grid" id="grid" aria-live="polite"></div>
+        <div class="empty" id="empty" hidden><b>暂时没有找到合适的款式</b><span>换个描述或减少筛选条件试试</span></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal" id="modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="detailTitle">
+    <button class="modal-backdrop" data-close aria-label="关闭详情"></button>
+    <article class="modal-card">
+      <button class="modal-close" data-close aria-label="关闭">×</button>
+      <div class="detail-hero"><img id="mImg" alt="蛋糕大图"><button id="mFav" class="detail-fav">♡ 收藏</button></div>
+      <div class="modal-info">
+        <div class="detail-top"><div><p id="mBarcode"></p><h2 id="detailTitle"><small>¥</small><span id="mPrice"></span></h2></div><span class="complete">● 资料完整</span></div>
+        <section class="detail-section"><h3><b class="a">A</b>规格预算</h3><div class="spec-line" id="mSpec"></div></section>
+        <section class="detail-section"><h3><b class="b">B</b>送谁 · 场合</h3><div class="detail-row"><strong>送谁</strong><div id="mTargets" class="tags"></div></div><div class="detail-row"><strong>场合</strong><div id="mOccasions" class="tags"></div></div></section>
+        <section class="detail-section"><h3><b class="c">C</b>主题风格</h3><div id="mThemes" class="tags"></div></section>
+        <section class="detail-section"><h3><b class="d">D</b>外观细节</h3><dl><div><dt>形状</dt><dd id="mShape"></dd></div><div><dt>颜色</dt><dd id="mColors" class="tags"></dd></div><div><dt>装饰</dt><dd id="mDecor"></dd></div><div><dt>花卉 / IP</dt><dd id="mExtra"></dd></div></dl></section>
+        <section class="detail-section"><h3><b class="e">E</b>语义描述</h3><p class="semantic" id="mDesc"></p></section>
+        <button class="copy-btn" id="copyBarcode">复制款式编号</button>
+      </div>
+    </article>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
