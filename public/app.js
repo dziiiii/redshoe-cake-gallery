@@ -7,7 +7,6 @@ const state = {
 };
 const esc = (value) => String(value || "").replace(/[&<>\"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[char]));
 const tags = (items, limit = 3) => (items || []).filter((item) => item && item !== "无").slice(0, limit).map((item) => `<span>${esc(item)}</span>`).join("");
-const ratioFor = (cake, index = 0) => ["4 / 5", "1 / 1", "3 / 4", "5 / 6"][(cake.id.length + index) % 4];
 
 function saveFavs() {
   localStorage.setItem("cakeFavs", JSON.stringify([...state.favs]));
@@ -35,7 +34,7 @@ function card(cake, index = 0, related = false) {
   const compactTags = [...(cake.occasions || []), ...(cake.themes || []), cake.category];
   const classes = related ? "related-card" : "card";
   return `<article class="${classes}" data-id="${cake.id}" tabindex="0" aria-label="${esc(cake.size)}蛋糕，价格${cake.price}元">
-    <div class="card-media" style="aspect-ratio:${ratioFor(cake, index)}">
+    <div class="card-media">
       <img loading="lazy" decoding="async" src="${cake.thumb || cake.img}" alt="${esc(cake.category)} ${esc(cake.size)}蛋糕">
       <button class="card-fav ${state.favs.has(cake.id) ? "on" : ""}" data-fav="${cake.id}" aria-label="${state.favs.has(cake.id) ? "取消收藏" : "收藏"}">${state.favs.has(cake.id) ? "♥" : "♡"}</button>
     </div>
@@ -46,6 +45,7 @@ function card(cake, index = 0, related = false) {
 function revealImage(img) {
   const reveal = () => {
     img.classList.add("is-loaded");
+    img.closest(".card-media")?.classList.add("has-image");
     img.closest(".detail-hero")?.classList.add("has-image");
   };
   if (img.complete && img.naturalWidth) reveal();
