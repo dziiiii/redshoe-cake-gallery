@@ -1,4 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
+const POSPAL_MINI_APP_URL = "https://pospal.cn/d/4000328";
+let openingPospal = false;
 const state = {
   sizes: new Set(), favs: new Set(JSON.parse(localStorage.getItem("cakeFavs") || "[]")),
   showFavOnly: false, category: "", results: [], currentCake: null,
@@ -299,10 +301,37 @@ $("#emptyReset").onclick = () => resetFilters(true);
 $("#loadMoreBtn").onclick = () => loadPage(false);
 $("#activeFilters").onclick = (event) => { const button = event.target.closest("[data-remove-filter]"); if (button) removeFilter(button.dataset.removeFilter); };
 $("#mFav").onclick = () => state.currentCake && toggleFav(state.currentCake.id);
-$("#copyBarcode").onclick = () => state.currentCake && navigator.clipboard.writeText(state.currentCake.barcode).then(() => toast("款式编号已复制"));
+$("#copyBarcode").onclick = async (event) => {
+  if (!state.currentCake || openingPospal) return;
+  const button = event.currentTarget;
+  if (!navigator.clipboard?.writeText) {
+    toast("浏览器不支持自动复制，请手动复制款式编号");
+    return;
+  }
+  openingPospal = true;
+  button.disabled = true;
+  button.textContent = "正在复制…";
+  try {
+    await navigator.clipboard.writeText(state.currentCake.barcode);
+    button.textContent = "正在打开银豹…";
+    toast("款式编号已复制");
+    window.setTimeout(() => location.assign(POSPAL_MINI_APP_URL), 250);
+  } catch {
+    openingPospal = false;
+    button.disabled = false;
+    button.textContent = "复制并打开银豹";
+    toast("复制失败，请允许剪贴板权限后重试");
+  }
+};
 $("#shareBtn").onclick = async () => { if (!state.currentCake) return; const data = { title: "红鞋烘焙蛋糕款式", text: `${state.currentCake.barcode} · ${state.currentCake.size} · ¥${state.currentCake.price}`, url: location.href }; if (navigator.share) await navigator.share(data).catch(() => {}); else navigator.clipboard.writeText(location.href).then(() => toast("链接已复制")); };
 document.querySelectorAll("[data-close]").forEach((element) => { element.onclick = () => closeDetail(); });
 window.addEventListener("popstate", () => { if ($("#modal").classList.contains("open")) closeDetail(true); });
+window.addEventListener("pageshow", () => {
+  openingPospal = false;
+  const button = $("#copyBarcode");
+  button.disabled = false;
+  button.textContent = "复制并打开银豹";
+});
 document.addEventListener("keydown", (event) => {
   const filterOpen = $("#filterSheet").classList.contains("open");
   const detailOpen = $("#modal").classList.contains("open");
